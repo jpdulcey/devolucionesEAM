@@ -2,3 +2,6 @@ streamlit
 pandas
 openpyxl
 python-docx
+gspread
+oauth2client
+protobuf==3.20.*
