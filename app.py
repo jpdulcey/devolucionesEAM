@@ -13,7 +13,6 @@ st.title("DEVOLUCIONES")
 
 PUNTAJE_BASE = 100
 SHEET_ID = "1xrDybkfOPlH3fLHEedPQG77Sf3PfUQzC7wKXPTber_g"
-ARCHIVO_CREDENCIALES = "credenciales_google.json"
 
 
 def limpiar_nombre_archivo(texto):
@@ -29,13 +28,14 @@ def conectar_sheet():
         "https://www.googleapis.com/auth/drive",
     ]
 
-    creds = ServiceAccountCredentials.from_json_keyfile_name(
-        ARCHIVO_CREDENCIALES,
+    creds_dict = dict(st.secrets["gcp_service_account"])
+
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        creds_dict,
         scope
     )
 
     client = gspread.authorize(creds)
-
     spreadsheet = client.open_by_key(SHEET_ID)
     sheet = spreadsheet.sheet1
     return sheet
@@ -98,7 +98,10 @@ def cargar_fuentes():
         raise KeyError("No existe la columna 'usuario' ni 'usuarioss' en control.xlsx")
 
     df_control = df_control[["nordest", col_analista, "codsede"]].drop_duplicates()
-    df_control = df_control.rename(columns={col_analista: "analista"})
+    df_control = df_control.rename(columns={
+    "usuario": "analista",
+    "usuarioss": "monitor"
+    })
 
     df_capdirest = df_capdirest[["nordest", "nordemp", "nomest"]].drop_duplicates()
 
@@ -141,6 +144,7 @@ def generar_word(nordemp, nordest, analista, territorial, establecimiento,
     doc.add_paragraph(f"NORDEMP: {nordemp}")
     doc.add_paragraph(f"NORDEST: {nordest}")
     doc.add_paragraph(f"Analista: {analista}")
+    doc.add_paragraph(f"Monitor: {monitor}")
     doc.add_paragraph(f"Territorial: {territorial}")
     doc.add_paragraph(f"Establecimiento: {establecimiento}")
 
@@ -209,23 +213,27 @@ if nordest:
     fila = df_base[df_base["nordest"] == nordest]
 
     if not fila.empty:
+
         analista = fila.iloc[0]["analista"]
+        monitor = fila.iloc[0]["monitor"]
         territorial = fila.iloc[0]["codsede"]
         establecimiento = fila.iloc[0]["nomest"]
         nordemp = fila.iloc[0]["nordemp"]
 
-        # Como en tu registro también existe "monitor", por ahora lo dejamos igual al analista
-        monitor = analista
         codsede = territorial
 
-        col1, col2, col3, col4 = st.columns(4)
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+
         with col1:
             st.text_input("NORDEMP", value=str(nordemp), disabled=True)
         with col2:
             st.text_input("Analista", value=str(analista), disabled=True)
         with col3:
-            st.text_input("Territorial", value=str(territorial), disabled=True)
+            st.text_input("Monitor", value=str(monitor), disabled=True)
         with col4:
+            st.text_input("Territorial", value=str(territorial), disabled=True)
+        with col5:
             st.text_input("Establecimiento", value=str(establecimiento), disabled=True)
 
         st.divider()
