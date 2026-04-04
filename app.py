@@ -2,14 +2,18 @@ import io
 import re
 from datetime import datetime
 
+import gspread
 import pandas as pd
 import streamlit as st
 from docx import Document
+from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Calidad analistas", layout="wide")
 st.title("DEVOLUCIONES")
 
 PUNTAJE_BASE = 100
+SHEET_ID = "1xrDybkfOPlH3fLHEedPQG77Sf3PfUQzC7wKXPTber_g"
+ARCHIVO_CREDENCIALES = "credenciales_google.json"
 
 
 def limpiar_nombre_archivo(texto):
@@ -17,6 +21,54 @@ def limpiar_nombre_archivo(texto):
     texto = re.sub(r'[\\/*?:"<>|]', "", texto)
     texto = re.sub(r"\s+", "_", texto)
     return texto
+
+
+def conectar_sheet():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds = ServiceAccountCredentials.from_json_keyfile_name(
+        ARCHIVO_CREDENCIALES,
+        scope
+    )
+
+    client = gspread.authorize(creds)
+
+    spreadsheet = client.open_by_key(SHEET_ID)
+    sheet = spreadsheet.sheet1
+    return sheet
+
+def guardar_registro_sheet(fecha, analista, territorial, nordemp, nordest, nomest,
+                           monitor, codsede, calificacion, resultado):
+    try:
+        sheet = conectar_sheet()
+
+        respuesta = sheet.append_row(
+            [
+                fecha,
+                analista,
+                territorial,
+                nordemp,
+                nordest,
+                nomest,
+                monitor,
+                codsede,
+                calificacion,
+                resultado
+            ],
+            value_input_option="USER_ENTERED"
+        )
+
+        return True, None
+
+    except Exception as e:
+        # Algunos casos devuelven <Response [200]> aunque sí guardó
+        if str(e).strip() == "<Response [200]>":
+            return True, None
+
+        return False, repr(e)
 
 
 @st.cache_data
@@ -30,14 +82,24 @@ def cargar_fuentes():
     df_control["nordest"] = df_control["nordest"].astype(str).str.strip()
     df_capdirest["nordest"] = df_capdirest["nordest"].astype(str).str.strip()
 
-    if "usuarioss" not in df_control.columns:
-        raise KeyError("No existe la columna 'usuarioss' en control.xlsx")
     if "nomest" not in df_capdirest.columns:
         raise KeyError("No existe la columna 'nomest' en capdirest.xlsx")
     if "nordemp" not in df_capdirest.columns:
         raise KeyError("No existe la columna 'nordemp' en capdirest.xlsx")
+    if "codsede" not in df_control.columns:
+        raise KeyError("No existe la columna 'codsede' en control.xlsx")
 
-    df_control = df_control[["nordest", "usuarioss"]].drop_duplicates()
+    # Soporta 'usuario' o 'usuarioss'
+    if "usuario" in df_control.columns:
+        col_analista = "usuario"
+    elif "usuarioss" in df_control.columns:
+        col_analista = "usuarioss"
+    else:
+        raise KeyError("No existe la columna 'usuario' ni 'usuarioss' en control.xlsx")
+
+    df_control = df_control[["nordest", col_analista, "codsede"]].drop_duplicates()
+    df_control = df_control.rename(columns={col_analista: "analista"})
+
     df_capdirest = df_capdirest[["nordest", "nordemp", "nomest"]].drop_duplicates()
 
     df_base = df_control.merge(df_capdirest, on="nordest", how="outer")
@@ -69,7 +131,8 @@ def cargar_puntajes():
     return df
 
 
-def generar_word(nordemp, nordest, monitor, establecimiento, seleccionados, puntaje_final, decision):
+def generar_word(nordemp, nordest, analista, territorial, establecimiento,
+                 seleccionados, puntaje_final, decision):
     doc = Document()
 
     doc.add_heading("Resultado de Evaluación", 1)
@@ -77,7 +140,8 @@ def generar_word(nordemp, nordest, monitor, establecimiento, seleccionados, punt
     doc.add_paragraph(f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     doc.add_paragraph(f"NORDEMP: {nordemp}")
     doc.add_paragraph(f"NORDEST: {nordest}")
-    doc.add_paragraph(f"Monitor: {monitor}")
+    doc.add_paragraph(f"Analista: {analista}")
+    doc.add_paragraph(f"Territorial: {territorial}")
     doc.add_paragraph(f"Establecimiento: {establecimiento}")
 
     doc.add_heading("Resumen", 2)
@@ -127,6 +191,9 @@ if "puntaje_final_final" not in st.session_state:
 if "decision_final" not in st.session_state:
     st.session_state["decision_final"] = ""
 
+if "registro_guardado" not in st.session_state:
+    st.session_state["registro_guardado"] = False
+
 st.subheader("1. Identificación")
 
 modo = st.radio("Modo de búsqueda", ["Escribir", "Seleccionar"], horizontal=True)
@@ -142,16 +209,23 @@ if nordest:
     fila = df_base[df_base["nordest"] == nordest]
 
     if not fila.empty:
-        monitor = fila.iloc[0]["usuarioss"]
+        analista = fila.iloc[0]["analista"]
+        territorial = fila.iloc[0]["codsede"]
         establecimiento = fila.iloc[0]["nomest"]
         nordemp = fila.iloc[0]["nordemp"]
 
-        col1, col2, col3 = st.columns(3)
+        # Como en tu registro también existe "monitor", por ahora lo dejamos igual al analista
+        monitor = analista
+        codsede = territorial
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.text_input("NORDEMP", value=str(nordemp), disabled=True)
         with col2:
-            st.text_input("Monitor", value=str(monitor), disabled=True)
+            st.text_input("Analista", value=str(analista), disabled=True)
         with col3:
+            st.text_input("Territorial", value=str(territorial), disabled=True)
+        with col4:
             st.text_input("Establecimiento", value=str(establecimiento), disabled=True)
 
         st.divider()
@@ -205,10 +279,31 @@ if nordest:
             puntaje_final = max(0, PUNTAJE_BASE - sum(x["puntaje"] for x in seleccionados))
             decision = "DEVOLVER" if puntaje_final < 90 else "ENVIAR CORREO"
 
+            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            ok, error_msg = guardar_registro_sheet(
+                fecha=fecha_registro,
+                analista=str(analista),
+                territorial=str(territorial),
+                nordemp=str(nordemp),
+                nordest=str(nordest),
+                nomest=str(establecimiento),
+                monitor=str(monitor),
+                codsede=str(codsede),
+                calificacion=float(puntaje_final),
+                resultado=str(decision)
+            )
+
             st.session_state["seleccionados_finales"] = seleccionados
             st.session_state["puntaje_final_final"] = puntaje_final
             st.session_state["decision_final"] = decision
             st.session_state["evaluacion_finalizada"] = True
+            st.session_state["registro_guardado"] = ok
+
+            if ok:
+                st.success("Registro guardado en Google Sheets.")
+            else:
+                st.error(f"No se pudo guardar en Google Sheets: {error_msg}")
 
         if st.session_state["evaluacion_finalizada"]:
             st.subheader("3. Resultado")
@@ -225,7 +320,8 @@ if nordest:
             archivo = generar_word(
                 nordemp=nordemp,
                 nordest=nordest,
-                monitor=monitor,
+                analista=analista,
+                territorial=territorial,
                 establecimiento=establecimiento,
                 seleccionados=st.session_state["seleccionados_finales"],
                 puntaje_final=st.session_state["puntaje_final_final"],
