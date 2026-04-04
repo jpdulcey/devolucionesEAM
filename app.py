@@ -40,12 +40,13 @@ def conectar_sheet():
     sheet = spreadsheet.sheet1
     return sheet
 
+
 def guardar_registro_sheet(fecha, analista, territorial, nordemp, nordest, nomest,
                            monitor, codsede, calificacion, resultado):
     try:
         sheet = conectar_sheet()
 
-        respuesta = sheet.append_row(
+        sheet.append_row(
             [
                 fecha,
                 analista,
@@ -64,7 +65,6 @@ def guardar_registro_sheet(fecha, analista, territorial, nordemp, nordest, nomes
         return True, None
 
     except Exception as e:
-        # Algunos casos devuelven <Response [200]> aunque sí guardó
         if str(e).strip() == "<Response [200]>":
             return True, None
 
@@ -82,25 +82,21 @@ def cargar_fuentes():
     df_control["nordest"] = df_control["nordest"].astype(str).str.strip()
     df_capdirest["nordest"] = df_capdirest["nordest"].astype(str).str.strip()
 
+    if "usuario" not in df_control.columns:
+        raise KeyError("No existe la columna 'usuario' en control.xlsx")
+    if "usuarioss" not in df_control.columns:
+        raise KeyError("No existe la columna 'usuarioss' en control.xlsx")
+    if "codsede" not in df_control.columns:
+        raise KeyError("No existe la columna 'codsede' en control.xlsx")
     if "nomest" not in df_capdirest.columns:
         raise KeyError("No existe la columna 'nomest' en capdirest.xlsx")
     if "nordemp" not in df_capdirest.columns:
         raise KeyError("No existe la columna 'nordemp' en capdirest.xlsx")
-    if "codsede" not in df_control.columns:
-        raise KeyError("No existe la columna 'codsede' en control.xlsx")
 
-    # Soporta 'usuario' o 'usuarioss'
-    if "usuario" in df_control.columns:
-        col_analista = "usuario"
-    elif "usuarioss" in df_control.columns:
-        col_analista = "usuarioss"
-    else:
-        raise KeyError("No existe la columna 'usuario' ni 'usuarioss' en control.xlsx")
-
-    df_control = df_control[["nordest", col_analista, "codsede"]].drop_duplicates()
+    df_control = df_control[["nordest", "usuario", "usuarioss", "codsede"]].drop_duplicates()
     df_control = df_control.rename(columns={
-    "usuario": "analista",
-    "usuarioss": "monitor"
+        "usuario": "analista",
+        "usuarioss": "monitor"
     })
 
     df_capdirest = df_capdirest[["nordest", "nordemp", "nomest"]].drop_duplicates()
@@ -134,7 +130,7 @@ def cargar_puntajes():
     return df
 
 
-def generar_word(nordemp, nordest, analista, territorial, establecimiento,
+def generar_word(nordemp, nordest, analista, monitor, territorial, establecimiento,
                  seleccionados, puntaje_final, decision):
     doc = Document()
 
@@ -213,7 +209,6 @@ if nordest:
     fila = df_base[df_base["nordest"] == nordest]
 
     if not fila.empty:
-
         analista = fila.iloc[0]["analista"]
         monitor = fila.iloc[0]["monitor"]
         territorial = fila.iloc[0]["codsede"]
@@ -221,7 +216,6 @@ if nordest:
         nordemp = fila.iloc[0]["nordemp"]
 
         codsede = territorial
-
 
         col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -329,6 +323,7 @@ if nordest:
                 nordemp=nordemp,
                 nordest=nordest,
                 analista=analista,
+                monitor=monitor,
                 territorial=territorial,
                 establecimiento=establecimiento,
                 seleccionados=st.session_state["seleccionados_finales"],
