@@ -9,7 +9,20 @@ from docx import Document
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Calidad analistas", layout="wide")
-st.title("DEVOLUCIONES")
+# HEADER PRO
+col1, col2 = st.columns([6, 1])
+
+with col1:
+    st.markdown(
+        """
+        <h1 style='margin-bottom: 0;'>DEVOLUCIONES</h1>
+        <hr style='margin-top: 5px;'>
+        """,
+        unsafe_allow_html=True
+    )
+
+with col2:
+    st.image("logo_DANE.jpg", width=120)
 
 PUNTAJE_BASE = 100
 SHEET_ID = "1xrDybkfOPlH3fLHEedPQG77Sf3PfUQzC7wKXPTber_g"
