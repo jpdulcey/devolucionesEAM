@@ -22,8 +22,8 @@ with col1:
     )
 
 with col2:
-    st.image("logo_DANE.jpg", width=120)
-
+    st.image("logo_DANE.jpg", use_container_width=True)
+    
 PUNTAJE_BASE = 100
 SHEET_ID = "1xrDybkfOPlH3fLHEedPQG77Sf3PfUQzC7wKXPTber_g"
 
