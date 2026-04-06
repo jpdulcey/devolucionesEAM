@@ -112,20 +112,23 @@ def cargar_puntajes():
     df = pd.read_excel("puntajes.xlsx")
     df.columns = [str(col).strip() for col in df.columns]
 
-    columnas = ["Hoja", "TÍTULO", "SUBTÍTULO", "PUNTAJE"]
-    for col in columnas:
+    columnas_requeridas = ["TÍTULO", "SUBTÍTULO_2", "PUNTAJE"]
+    for col in columnas_requeridas:
         if col not in df.columns:
             raise KeyError(f"Falta la columna '{col}' en puntajes.xlsx")
 
-    df = df[columnas].copy()
+    if "SUBTÍTULO_1" not in df.columns:
+        df["SUBTÍTULO_1"] = ""
+
+    df = df[["TÍTULO", "SUBTÍTULO_1", "SUBTÍTULO_2", "PUNTAJE"]].copy()
     df["orden"] = range(len(df))
 
-    df["Hoja"] = pd.to_numeric(df["Hoja"], errors="coerce")
-    df["TÍTULO"] = df["TÍTULO"].astype(str).str.strip()
-    df["SUBTÍTULO"] = df["SUBTÍTULO"].astype(str).str.strip()
+    df["TÍTULO"] = df["TÍTULO"].fillna("").astype(str).str.strip()
+    df["SUBTÍTULO_1"] = df["SUBTÍTULO_1"].fillna("").astype(str).str.strip()
+    df["SUBTÍTULO_2"] = df["SUBTÍTULO_2"].fillna("").astype(str).str.strip()
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce").fillna(0)
 
-    df = df.dropna(subset=["TÍTULO", "SUBTÍTULO"]).reset_index(drop=True)
+    df = df[(df["TÍTULO"] != "") & (df["SUBTÍTULO_2"] != "")].reset_index(drop=True)
 
     return df
 
@@ -155,11 +158,18 @@ def generar_word(nordemp, nordest, analista, monitor, territorial, establecimien
     else:
         seleccionados_ordenados = sorted(seleccionados, key=lambda x: x["orden"])
         modulo_actual = None
+        categoria_actual = None
 
         for item in seleccionados_ordenados:
             if item["titulo"] != modulo_actual:
                 doc.add_heading(item["titulo"], 3)
                 modulo_actual = item["titulo"]
+                categoria_actual = None
+
+            if item["categoria"]:
+                if item["categoria"] != categoria_actual:
+                    doc.add_heading(item["categoria"], 4)
+                    categoria_actual = item["categoria"]
 
             p_sub = doc.add_paragraph()
             run = p_sub.add_run(item["subtitulo"])
@@ -240,24 +250,52 @@ if nordest:
             df_titulo = df_titulo.sort_values("orden")
 
             with st.expander(titulo, expanded=False):
-                for _, fila2 in df_titulo.iterrows():
-                    idx = int(fila2["orden"])
+                categorias = [
+                    x for x in df_titulo["SUBTÍTULO_1"].drop_duplicates().tolist()
+                    if str(x).strip() != ""
+                ]
 
-                    check_key = f"check_{idx}"
-                    text_key = f"text_{idx}"
+                if categorias:
+                    for categoria in categorias:
+                        df_categoria = df_titulo[df_titulo["SUBTÍTULO_1"] == categoria].copy()
 
-                    st.checkbox(
-                        f"{fila2['SUBTÍTULO']} (-{fila2['PUNTAJE']})",
-                        key=check_key
-                    )
+                        st.markdown(f"#### {categoria}")
 
-                    if st.session_state.get(check_key, False):
-                        st.text_area(
-                            f"Observación: {fila2['SUBTÍTULO']}",
-                            key=text_key,
-                            height=120,
-                            placeholder="Aquí el analista puede escribir o pegar la observación..."
+                        for _, fila2 in df_categoria.iterrows():
+                            idx = int(fila2["orden"])
+                            check_key = f"check_{idx}"
+                            text_key = f"text_{idx}"
+
+                            st.checkbox(
+                                f"{fila2['SUBTÍTULO_2']} (-{fila2['PUNTAJE']})",
+                                key=check_key
+                            )
+
+                            if st.session_state.get(check_key, False):
+                                st.text_area(
+                                    f"Observación: {fila2['SUBTÍTULO_2']}",
+                                    key=text_key,
+                                    height=120,
+                                    placeholder="Aquí el analista puede escribir o pegar la observación..."
+                                )
+                else:
+                    for _, fila2 in df_titulo.iterrows():
+                        idx = int(fila2["orden"])
+                        check_key = f"check_{idx}"
+                        text_key = f"text_{idx}"
+
+                        st.checkbox(
+                            f"{fila2['SUBTÍTULO_2']} (-{fila2['PUNTAJE']})",
+                            key=check_key
                         )
+
+                        if st.session_state.get(check_key, False):
+                            st.text_area(
+                                f"Observación: {fila2['SUBTÍTULO_2']}",
+                                key=text_key,
+                                height=120,
+                                placeholder="Aquí el analista puede escribir o pegar la observación..."
+                            )
 
         st.divider()
 
@@ -272,7 +310,8 @@ if nordest:
                 if st.session_state.get(check_key, False):
                     seleccionados.append({
                         "titulo": fila2["TÍTULO"],
-                        "subtitulo": fila2["SUBTÍTULO"],
+                        "categoria": fila2["SUBTÍTULO_1"],
+                        "subtitulo": fila2["SUBTÍTULO_2"],
                         "puntaje": fila2["PUNTAJE"],
                         "texto": st.session_state.get(text_key, "").strip(),
                         "orden": idx
