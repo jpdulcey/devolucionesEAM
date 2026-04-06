@@ -9,8 +9,9 @@ from docx import Document
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Calidad analistas", layout="wide")
+
 # HEADER PRO
-col1, col2 = st.columns([6, 1])
+col1, col2 = st.columns([5, 2])
 
 with col1:
     st.markdown(
@@ -23,7 +24,7 @@ with col1:
 
 with col2:
     st.image("logo_DANE.jpg", use_container_width=True)
-    
+
 PUNTAJE_BASE = 100
 SHEET_ID = "1xrDybkfOPlH3fLHEedPQG77Sf3PfUQzC7wKXPTber_g"
 
@@ -54,8 +55,18 @@ def conectar_sheet():
     return sheet
 
 
-def guardar_registro_sheet(fecha, analista, territorial, nordemp, nordest, nomest,
-                           monitor, codsede, calificacion, resultado):
+def guardar_registro_sheet(
+    fecha,
+    analista,
+    territorial,
+    nordemp,
+    nordest,
+    nomest,
+    monitor,
+    codsede,
+    calificacion,
+    resultado
+):
     try:
         sheet = conectar_sheet()
 
@@ -109,7 +120,8 @@ def cargar_fuentes():
     df_control = df_control[["nordest", "usuario", "usuarioss", "codsede"]].drop_duplicates()
     df_control = df_control.rename(columns={
         "usuario": "analista",
-        "usuarioss": "monitor"
+        "usuarioss": "monitor",
+        "codsede": "territorial"
     })
 
     df_capdirest = df_capdirest[["nordest", "nordemp", "nomest"]].drop_duplicates()
@@ -146,8 +158,17 @@ def cargar_puntajes():
     return df
 
 
-def generar_word(nordemp, nordest, analista, monitor, territorial, establecimiento,
-                 seleccionados, puntaje_final, decision):
+def generar_word(
+    nordemp,
+    nordest,
+    analista,
+    monitor,
+    territorial,
+    establecimiento,
+    seleccionados,
+    puntaje_final,
+    decision
+):
     doc = Document()
 
     doc.add_heading("Resultado de Evaluación", 1)
@@ -234,7 +255,7 @@ if nordest:
     if not fila.empty:
         analista = fila.iloc[0]["analista"]
         monitor = fila.iloc[0]["monitor"]
-        territorial = fila.iloc[0]["codsede"]
+        territorial = fila.iloc[0]["territorial"]
         establecimiento = fila.iloc[0]["nomest"]
         nordemp = fila.iloc[0]["nordemp"]
 
@@ -272,25 +293,24 @@ if nordest:
                     for categoria in categorias:
                         df_categoria = df_titulo[df_titulo["SUBTÍTULO_1"] == categoria].copy()
 
-                        st.markdown(f"#### {categoria}")
+                        with st.expander(categoria, expanded=False):
+                            for _, fila2 in df_categoria.iterrows():
+                                idx = int(fila2["orden"])
+                                check_key = f"check_{idx}"
+                                text_key = f"text_{idx}"
 
-                        for _, fila2 in df_categoria.iterrows():
-                            idx = int(fila2["orden"])
-                            check_key = f"check_{idx}"
-                            text_key = f"text_{idx}"
-
-                            st.checkbox(
-                                f"{fila2['SUBTÍTULO_2']} (-{fila2['PUNTAJE']})",
-                                key=check_key
-                            )
-
-                            if st.session_state.get(check_key, False):
-                                st.text_area(
-                                    f"Observación: {fila2['SUBTÍTULO_2']}",
-                                    key=text_key,
-                                    height=120,
-                                    placeholder="Aquí el analista puede escribir o pegar la observación..."
+                                st.checkbox(
+                                    f"{fila2['SUBTÍTULO_2']} (-{fila2['PUNTAJE']})",
+                                    key=check_key
                                 )
+
+                                if st.session_state.get(check_key, False):
+                                    st.text_area(
+                                        f"Observación: {fila2['SUBTÍTULO_2']}",
+                                        key=text_key,
+                                        height=120,
+                                        placeholder="Aquí el analista puede escribir o pegar la observación..."
+                                    )
                 else:
                     for _, fila2 in df_titulo.iterrows():
                         idx = int(fila2["orden"])
