@@ -1,14 +1,11 @@
 import io
 import re
-import base64
 from datetime import datetime
 
 import gspread
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from docx import Document
-from docx.shared import Inches
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Calidad analistas", layout="wide")
@@ -18,7 +15,10 @@ col1, col2 = st.columns([5, 2])
 
 with col1:
     st.markdown(
-        "<h1 style='margin-bottom: 0;'>DEVOLUCIONES</h1><hr>",
+        """
+        <h1 style='margin-bottom: 0;'>DEVOLUCIONES</h1>
+        <hr style='margin-top: 5px;'>
+        """,
         unsafe_allow_html=True
     )
 
@@ -42,20 +42,57 @@ def conectar_sheet():
         "https://www.googleapis.com/auth/drive",
     ]
 
+    creds_dict = dict(st.secrets["gcp_service_account"])
+
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        dict(st.secrets["gcp_service_account"]), scope
+        creds_dict,
+        scope
     )
 
     client = gspread.authorize(creds)
-    return client.open_by_key(SHEET_ID).sheet1
+    spreadsheet = client.open_by_key(SHEET_ID)
+    sheet = spreadsheet.sheet1
+    return sheet
 
 
-def guardar_registro_sheet(*row):
+def guardar_registro_sheet(
+    fecha,
+    analista,
+    territorial,
+    nordemp,
+    nordest,
+    nomest,
+    monitor,
+    codsede,
+    calificacion,
+    resultado
+):
     try:
-        conectar_sheet().append_row(list(row), value_input_option="USER_ENTERED")
+        sheet = conectar_sheet()
+
+        sheet.append_row(
+            [
+                fecha,
+                analista,
+                territorial,
+                nordemp,
+                nordest,
+                nomest,
+                monitor,
+                codsede,
+                calificacion,
+                resultado
+            ],
+            value_input_option="USER_ENTERED"
+        )
+
         return True, None
+
     except Exception as e:
-        return False, str(e)
+        if str(e).strip() == "<Response [200]>":
+            return True, None
+
+        return False, repr(e)
 
 
 @st.cache_data
@@ -63,67 +100,119 @@ def cargar_fuentes():
     df_control = pd.read_excel("control.xlsx")
     df_capdirest = pd.read_excel("capdirest.xlsx")
 
-    df_control.columns = df_control.columns.str.lower()
-    df_capdirest.columns = df_capdirest.columns.str.lower()
+    df_control.columns = df_control.columns.str.strip().str.lower()
+    df_capdirest.columns = df_capdirest.columns.str.strip().str.lower()
 
-    return df_control.merge(df_capdirest, on="nordest", how="left")
+    df_control["nordest"] = df_control["nordest"].astype(str).str.strip()
+    df_capdirest["nordest"] = df_capdirest["nordest"].astype(str).str.strip()
+
+    if "usuario" not in df_control.columns:
+        raise KeyError("No existe la columna 'usuario' en control.xlsx")
+    if "usuarioss" not in df_control.columns:
+        raise KeyError("No existe la columna 'usuarioss' en control.xlsx")
+    if "codsede" not in df_control.columns:
+        raise KeyError("No existe la columna 'codsede' en control.xlsx")
+    if "nomest" not in df_capdirest.columns:
+        raise KeyError("No existe la columna 'nomest' en capdirest.xlsx")
+    if "nordemp" not in df_capdirest.columns:
+        raise KeyError("No existe la columna 'nordemp' en capdirest.xlsx")
+
+    df_control = df_control[["nordest", "usuario", "usuarioss", "codsede"]].drop_duplicates()
+    df_control = df_control.rename(columns={
+        "usuario": "analista",
+        "usuarioss": "monitor",
+        "codsede": "territorial"
+    })
+
+    df_capdirest = df_capdirest[["nordest", "nordemp", "nomest"]].drop_duplicates()
+
+    df_base = df_control.merge(df_capdirest, on="nordest", how="outer")
+    df_base = df_base.sort_values("nordest").reset_index(drop=True)
+
+    return df_base
 
 
 @st.cache_data
 def cargar_puntajes():
     df = pd.read_excel("puntajes.xlsx")
+    df.columns = [str(col).strip() for col in df.columns]
+
+    columnas_requeridas = ["TÍTULO", "SUBTÍTULO_2", "PUNTAJE"]
+    for col in columnas_requeridas:
+        if col not in df.columns:
+            raise KeyError(f"Falta la columna '{col}' en puntajes.xlsx")
+
+    if "SUBTÍTULO_1" not in df.columns:
+        df["SUBTÍTULO_1"] = ""
+
+    df = df[["TÍTULO", "SUBTÍTULO_1", "SUBTÍTULO_2", "PUNTAJE"]].copy()
     df["orden"] = range(len(df))
+
+    df["TÍTULO"] = df["TÍTULO"].fillna("").astype(str).str.strip()
+    df["SUBTÍTULO_1"] = df["SUBTÍTULO_1"].fillna("").astype(str).str.strip()
+    df["SUBTÍTULO_2"] = df["SUBTÍTULO_2"].fillna("").astype(str).str.strip()
+    df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce").fillna(0)
+
+    df = df[(df["TÍTULO"] != "") & (df["SUBTÍTULO_2"] != "")].reset_index(drop=True)
+
     return df
 
 
-def pegar_imagen_component(key):
-    html = f"""
-    <textarea id="paste-{key}" style="width:100%;height:70px;"></textarea>
-    <div id="preview-{key}"></div>
-
-    <script>
-    const area = document.getElementById("paste-{key}");
-    const preview = document.getElementById("preview-{key}");
-
-    area.addEventListener("paste", e => {{
-        const items = e.clipboardData.items;
-        for (let i=0;i<items.length;i++) {{
-            if (items[i].type.includes("image")) {{
-                const file = items[i].getAsFile();
-                const reader = new FileReader();
-
-                reader.onload = ev => {{
-                    preview.innerHTML = `<img src="${{ev.target.result}}" width="200"/>`;
-                    window.parent.postMessage({{
-                        type:"streamlit:setComponentValue",
-                        value: ev.target.result
-                    }},"*");
-                }};
-                reader.readAsDataURL(file);
-            }}
-        }}
-    }});
-    </script>
-    """
-    return components.html(html, height=150)
-
-
-def generar_word(data, info):
+def generar_word(
+    nordemp,
+    nordest,
+    analista,
+    monitor,
+    territorial,
+    establecimiento,
+    seleccionados,
+    puntaje_final,
+    decision
+):
     doc = Document()
 
     doc.add_heading("Resultado de Evaluación", 1)
 
-    for k, v in info.items():
-        doc.add_paragraph(f"{k}: {v}")
+    doc.add_paragraph(f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    doc.add_paragraph(f"NORDEMP: {nordemp}")
+    doc.add_paragraph(f"NORDEST: {nordest}")
+    doc.add_paragraph(f"Analista: {analista}")
+    doc.add_paragraph(f"Monitor: {monitor}")
+    doc.add_paragraph(f"Territorial: {territorial}")
+    doc.add_paragraph(f"Establecimiento: {establecimiento}")
+
+    doc.add_heading("Resumen", 2)
+    doc.add_paragraph(f"Puntaje final: {puntaje_final}")
+    doc.add_paragraph(f"Resultado: {decision}")
 
     doc.add_heading("Observaciones", 2)
 
-    for item in data:
-        doc.add_paragraph(item["subtitulo"]).bold = True
-        doc.add_paragraph(item["texto"])
+    if not seleccionados:
+        doc.add_paragraph("No se registraron observaciones.")
+    else:
+        seleccionados_ordenados = sorted(seleccionados, key=lambda x: x["orden"])
+        modulo_actual = None
+        categoria_actual = None
 
-        if item["imagen"]:
-            doc.add_picture(io.BytesIO(item["imagen"]), width=Inches(4.5))
+        for item in seleccionados_ordenados:
+            if item["titulo"] != modulo_actual:
+                doc.add_heading(item["titulo"], 3)
+                modulo_actual = item["titulo"]
+                categoria_actual = None
+
+            if item["categoria"]:
+                if item["categoria"] != categoria_actual:
+                    doc.add_heading(item["categoria"], 4)
+                    categoria_actual = item["categoria"]
+
+            p_sub = doc.add_paragraph()
+            run = p_sub.add_run(item["subtitulo"])
+            run.bold = True
+
+            if item["texto"]:
+                doc.add_paragraph(item["texto"])
+            else:
+                doc.add_paragraph("")
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -134,79 +223,249 @@ def generar_word(data, info):
 df_base = cargar_fuentes()
 df_puntajes = cargar_puntajes()
 
-st.subheader("Identificación")
-nordest = st.text_input("NORDEST")
+if "evaluacion_finalizada" not in st.session_state:
+    st.session_state["evaluacion_finalizada"] = False
+
+if "seleccionados_finales" not in st.session_state:
+    st.session_state["seleccionados_finales"] = []
+
+if "puntaje_final_final" not in st.session_state:
+    st.session_state["puntaje_final_final"] = 100
+
+if "decision_final" not in st.session_state:
+    st.session_state["decision_final"] = ""
+
+if "decision_usuario" not in st.session_state:
+    st.session_state["decision_usuario"] = ""
+
+if "registro_guardado" not in st.session_state:
+    st.session_state["registro_guardado"] = False
+
+if "registro_error" not in st.session_state:
+    st.session_state["registro_error"] = None
+
+if "registro_ya_guardado" not in st.session_state:
+    st.session_state["registro_ya_guardado"] = False
+
+st.subheader("1. Identificación")
+
+modo = st.radio("Modo de búsqueda", ["Escribir", "Seleccionar"], horizontal=True)
+
+nordest = ""
+if modo == "Escribir":
+    nordest = st.text_input("NORDEST").strip()
+else:
+    lista = [""] + df_base["nordest"].dropna().astype(str).tolist()
+    nordest = st.selectbox("NORDEST", lista)
 
 if nordest:
     fila = df_base[df_base["nordest"] == nordest]
 
     if not fila.empty:
-        f = fila.iloc[0]
+        analista = fila.iloc[0]["analista"]
+        monitor = fila.iloc[0]["monitor"]
+        territorial = fila.iloc[0]["territorial"]
+        establecimiento = fila.iloc[0]["nomest"]
+        nordemp = fila.iloc[0]["nordemp"]
 
-        st.write("Analista:", f.get("usuario", ""))
-        st.write("Establecimiento:", f.get("nomest", ""))
+        codsede = territorial
 
-        seleccionados = []
+        col1, col2, col3, col4, col5 = st.columns(5)
 
-        st.subheader("Evaluación")
+        with col1:
+            st.text_input("NORDEMP", value=str(nordemp), disabled=True)
+        with col2:
+            st.text_input("Analista", value=str(analista), disabled=True)
+        with col3:
+            st.text_input("Monitor", value=str(monitor), disabled=True)
+        with col4:
+            st.text_input("Territorial", value=str(territorial), disabled=True)
+        with col5:
+            st.text_input("Establecimiento", value=str(establecimiento), disabled=True)
 
-        for _, r in df_puntajes.iterrows():
-            idx = r["orden"]
+        st.divider()
+        st.subheader("2. Evaluación")
 
-            check = st.checkbox(f"{r['SUBTÍTULO_2']} ({r['PUNTAJE']})", key=f"c{idx}")
+        titulos_en_orden = df_puntajes["TÍTULO"].drop_duplicates().tolist()
 
-            if check:
-                texto = st.text_area("Observación", key=f"t{idx}")
+        for titulo in titulos_en_orden:
+            df_titulo = df_puntajes[df_puntajes["TÍTULO"] == titulo].copy()
+            df_titulo = df_titulo.sort_values("orden")
 
-                img = pegar_imagen_component(idx)
+            with st.expander(titulo, expanded=False):
+                categorias = [
+                    x for x in df_titulo["SUBTÍTULO_1"].drop_duplicates().tolist()
+                    if str(x).strip() != ""
+                ]
 
-                imagen_bytes = None
-                if img:
-                    try:
-                        _, enc = img.split(",", 1)
-                        imagen_bytes = base64.b64decode(enc)
-                    except:
-                        pass
+                if categorias:
+                    for categoria in categorias:
+                        df_categoria = df_titulo[df_titulo["SUBTÍTULO_1"] == categoria].copy()
 
-                seleccionados.append({
-                    "subtitulo": r["SUBTÍTULO_2"],
-                    "puntaje": r["PUNTAJE"],
-                    "texto": texto,
-                    "imagen": imagen_bytes
-                })
+                        with st.expander(categoria, expanded=False):
+                            for _, fila2 in df_categoria.iterrows():
+                                idx = int(fila2["orden"])
+                                check_key = f"check_{idx}"
+                                text_key = f"text_{idx}"
 
-        if st.button("Finalizar"):
-            puntaje = max(0, 100 - sum(x["puntaje"] for x in seleccionados))
+                                st.checkbox(
+                                    f"{fila2['SUBTÍTULO_2']} ({fila2['PUNTAJE']})",
+                                    key=check_key
+                                )
 
-            rec = "DEVOLVER" if puntaje < 90 else "ENVIAR CORREO"
+                                if st.session_state.get(check_key, False):
+                                    st.text_area(
+                                        f"Observación: {fila2['SUBTÍTULO_2']}",
+                                        key=text_key,
+                                        height=120,
+                                        placeholder="Aquí el analista puede escribir o pegar la observación..."
+                                    )
+                else:
+                    for _, fila2 in df_titulo.iterrows():
+                        idx = int(fila2["orden"])
+                        check_key = f"check_{idx}"
+                        text_key = f"text_{idx}"
 
-            st.write("Puntaje:", puntaje)
-            st.write("Recomendación:", rec)
+                        st.checkbox(
+                            f"{fila2['SUBTÍTULO_2']} ({fila2['PUNTAJE']})",
+                            key=check_key
+                        )
 
-            decision = st.radio("Decisión final", ["ENVIAR CORREO", "DEVOLVER"])
+                        if st.session_state.get(check_key, False):
+                            st.text_area(
+                                f"Observación: {fila2['SUBTÍTULO_2']}",
+                                key=text_key,
+                                height=120,
+                                placeholder="Aquí el analista puede escribir o pegar la observación..."
+                            )
 
-            if st.button("Confirmar decisión"):
-                ok, err = guardar_registro_sheet(
-                    datetime.now(),
-                    f.get("usuario", ""),
-                    f.get("nordemp", ""),
-                    nordest,
-                    puntaje,
-                    decision
+        st.divider()
+
+        if st.button("Finalizar evaluación"):
+            seleccionados = []
+
+            for _, fila2 in df_puntajes.sort_values("orden").iterrows():
+                idx = int(fila2["orden"])
+                check_key = f"check_{idx}"
+                text_key = f"text_{idx}"
+
+                if st.session_state.get(check_key, False):
+                    seleccionados.append({
+                        "titulo": fila2["TÍTULO"],
+                        "categoria": fila2["SUBTÍTULO_1"],
+                        "subtitulo": fila2["SUBTÍTULO_2"],
+                        "puntaje": fila2["PUNTAJE"],
+                        "texto": st.session_state.get(text_key, "").strip(),
+                        "orden": idx
+                    })
+
+            puntaje_final = max(0, PUNTAJE_BASE - sum(x["puntaje"] for x in seleccionados))
+            recomendacion = "DEVOLVER" if puntaje_final < 90 else "ENVIAR CORREO"
+
+            st.session_state["seleccionados_finales"] = seleccionados
+            st.session_state["puntaje_final_final"] = puntaje_final
+            st.session_state["decision_final"] = recomendacion
+            st.session_state["decision_usuario"] = ""
+            st.session_state["evaluacion_finalizada"] = True
+            st.session_state["registro_guardado"] = False
+            st.session_state["registro_error"] = None
+            st.session_state["registro_ya_guardado"] = False
+
+        if st.session_state["evaluacion_finalizada"]:
+            st.subheader("3. Resultado")
+
+            puntaje = st.session_state["puntaje_final_final"]
+            recomendacion = st.session_state["decision_final"]
+
+            c1, c2 = st.columns(2)
+            c1.metric("Puntaje final", f"{puntaje:g}")
+            c2.metric("Recomendación del sistema", recomendacion)
+
+            if recomendacion == "DEVOLVER":
+                st.error("Según la validación, se recomienda devolver el caso. Seleccione la acción a realizar:")
+            else:
+                st.success("Según la validación, se recomienda enviar correo. Seleccione la acción a realizar:")
+
+            col_btn1, col_btn2 = st.columns(2)
+
+            with col_btn1:
+                if recomendacion == "ENVIAR CORREO":
+                    if st.button("✅ Enviar correo", type="primary"):
+                        st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                        st.session_state["registro_ya_guardado"] = False
+                else:
+                    if st.button("✅ Enviar correo"):
+                        st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                        st.session_state["registro_ya_guardado"] = False
+
+            with col_btn2:
+                if recomendacion == "DEVOLVER":
+                    if st.button("🔁 Devolver caso", type="primary"):
+                        st.session_state["decision_usuario"] = "DEVOLVER"
+                        st.session_state["registro_ya_guardado"] = False
+                else:
+                    if st.button("🔁 Devolver caso"):
+                        st.session_state["decision_usuario"] = "DEVOLVER"
+                        st.session_state["registro_ya_guardado"] = False
+
+            if st.session_state.get("decision_usuario") and not st.session_state["registro_ya_guardado"]:
+                fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                ok, error_msg = guardar_registro_sheet(
+                    fecha=fecha_registro,
+                    analista=str(analista),
+                    territorial=str(territorial),
+                    nordemp=str(nordemp),
+                    nordest=str(nordest),
+                    nomest=str(establecimiento),
+                    monitor=str(monitor),
+                    codsede=str(codsede),
+                    calificacion=float(puntaje),
+                    resultado=str(st.session_state["decision_usuario"])
                 )
 
-                if ok:
-                    st.success("Guardado ✔")
+                st.session_state["registro_guardado"] = ok
+                st.session_state["registro_error"] = error_msg
+                st.session_state["registro_ya_guardado"] = True
+
+            if st.session_state.get("decision_usuario"):
+                st.divider()
+                st.subheader("Decisión final seleccionada")
+
+                if st.session_state["decision_usuario"] == "DEVOLVER":
+                    st.error("DEVOLVER")
                 else:
-                    st.error(err)
+                    st.success("ENVIAR CORREO")
 
-                doc = generar_word(seleccionados, {
-                    "NORDEST": nordest,
-                    "Resultado": decision,
-                    "Puntaje": puntaje
-                })
+                if st.session_state["registro_guardado"]:
+                    st.success("Registro guardado en Google Sheets con la decisión final del usuario.")
+                elif st.session_state["registro_error"]:
+                    st.error(f"No se pudo guardar en Google Sheets: {st.session_state['registro_error']}")
 
-                st.download_button("Descargar Word", doc, "resultado.docx")
+                archivo = generar_word(
+                    nordemp=nordemp,
+                    nordest=nordest,
+                    analista=analista,
+                    monitor=monitor,
+                    territorial=territorial,
+                    establecimiento=establecimiento,
+                    seleccionados=st.session_state["seleccionados_finales"],
+                    puntaje_final=puntaje,
+                    decision=st.session_state["decision_usuario"]
+                )
+
+                nombre_archivo = (
+                    f"{limpiar_nombre_archivo(nordemp)}_"
+                    f"{limpiar_nombre_archivo(nordest)}_"
+                    f"{limpiar_nombre_archivo(establecimiento)}.docx"
+                )
+
+                st.download_button(
+                    "Descargar Word",
+                    archivo,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
 
     else:
-        st.warning("No encontrado")
+        st.warning("No se encontró ese NORDEST.")
