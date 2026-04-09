@@ -379,6 +379,75 @@ if nordest:
             else:
                 st.error(f"No se pudo guardar en Google Sheets: {error_msg}")
 
+        
+
+
+        if st.session_state["evaluacion_finalizada"]:
+            st.subheader("3. Resultado")
+
+            puntaje = st.session_state["puntaje_final_final"]
+            recomendacion = st.session_state["decision_final"]
+
+            c1, c2 = st.columns(2)
+            c1.metric("Puntaje final", f"{puntaje:g}")
+            c2.metric("Recomendación del sistema", recomendacion)
+
+            # 🎯 MENSAJE DINÁMICO
+            if recomendacion == "DEVOLVER":
+                st.error("Según la validación, se recomienda devolver el caso. Seleccione la acción a realizar:")
+            else:
+                st.success("Según la validación, se recomienda enviar correo. Seleccione la acción a realizar:")
+
+            # 🎯 BOTONES DE DECISIÓN
+            col_btn1, col_btn2 = st.columns(2)
+
+            with col_btn1:
+                if st.button("✅ Enviar correo"):
+                    st.session_state["decision_usuario"] = "ENVIAR CORREO"
+
+            with col_btn2:
+                if st.button("🔁 Devolver caso"):
+                    st.session_state["decision_usuario"] = "DEVOLVER"
+
+            # 🎯 MOSTRAR DECISIÓN FINAL
+                if "decision_usuario" in st.session_state:
+                    st.divider()
+                    st.subheader("Decisión final seleccionada")
+
+                if st.session_state["decision_usuario"] == "DEVOLVER":
+                    st.error("DEVOLVER")
+                else:
+                    st.success("ENVIAR CORREO")
+
+                decision_final_usuario = st.session_state["decision_usuario"]
+
+                # 🔽 GENERAR WORD CON DECISIÓN FINAL
+                archivo = generar_word(
+                    nordemp=nordemp,
+                    nordest=nordest,
+                    analista=analista,
+                    monitor=monitor,
+                    territorial=territorial,
+                    establecimiento=establecimiento,
+                    seleccionados=st.session_state["seleccionados_finales"],
+                    puntaje_final=puntaje,
+                    decision=decision_final_usuario
+                )
+
+                nombre_archivo = (
+                    f"{limpiar_nombre_archivo(nordemp)}_"
+                    f"{limpiar_nombre_archivo(nordest)}_"
+                    f"{limpiar_nombre_archivo(establecimiento)}.docx"
+                )
+
+                st.download_button(
+                    "Descargar Word",
+                    archivo,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        
+        
         if st.session_state["evaluacion_finalizada"]:
             st.subheader("3. Resultado")
 
