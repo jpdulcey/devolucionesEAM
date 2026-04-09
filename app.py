@@ -235,6 +235,9 @@ if "puntaje_final_final" not in st.session_state:
 if "decision_final" not in st.session_state:
     st.session_state["decision_final"] = ""
 
+if "decision_usuario" not in st.session_state:
+    st.session_state["decision_usuario"] = ""
+
 if "registro_guardado" not in st.session_state:
     st.session_state["registro_guardado"] = False
 
@@ -371,6 +374,7 @@ if nordest:
             st.session_state["seleccionados_finales"] = seleccionados
             st.session_state["puntaje_final_final"] = puntaje_final
             st.session_state["decision_final"] = decision
+            st.session_state["decision_usuario"] = ""
             st.session_state["evaluacion_finalizada"] = True
             st.session_state["registro_guardado"] = ok
 
@@ -378,9 +382,6 @@ if nordest:
                 st.success("Registro guardado en Google Sheets.")
             else:
                 st.error(f"No se pudo guardar en Google Sheets: {error_msg}")
-
-        
-
 
         if st.session_state["evaluacion_finalizada"]:
             st.subheader("3. Resultado")
@@ -392,36 +393,38 @@ if nordest:
             c1.metric("Puntaje final", f"{puntaje:g}")
             c2.metric("Recomendación del sistema", recomendacion)
 
-            # 🎯 MENSAJE DINÁMICO
             if recomendacion == "DEVOLVER":
                 st.error("Según la validación, se recomienda devolver el caso. Seleccione la acción a realizar:")
             else:
                 st.success("Según la validación, se recomienda enviar correo. Seleccione la acción a realizar:")
 
-            # 🎯 BOTONES DE DECISIÓN
             col_btn1, col_btn2 = st.columns(2)
 
             with col_btn1:
-                if st.button("✅ Enviar correo"):
-                    st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                if recomendacion == "ENVIAR CORREO":
+                    if st.button("✅ Enviar correo", type="primary"):
+                        st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                else:
+                    if st.button("✅ Enviar correo"):
+                        st.session_state["decision_usuario"] = "ENVIAR CORREO"
 
             with col_btn2:
-                if st.button("🔁 Devolver caso"):
-                    st.session_state["decision_usuario"] = "DEVOLVER"
+                if recomendacion == "DEVOLVER":
+                    if st.button("🔁 Devolver caso", type="primary"):
+                        st.session_state["decision_usuario"] = "DEVOLVER"
+                else:
+                    if st.button("🔁 Devolver caso"):
+                        st.session_state["decision_usuario"] = "DEVOLVER"
 
-            # 🎯 MOSTRAR DECISIÓN FINAL
-                if "decision_usuario" in st.session_state:
-                    st.divider()
-                    st.subheader("Decisión final seleccionada")
+            if st.session_state.get("decision_usuario"):
+                st.divider()
+                st.subheader("Decisión final seleccionada")
 
                 if st.session_state["decision_usuario"] == "DEVOLVER":
                     st.error("DEVOLVER")
                 else:
                     st.success("ENVIAR CORREO")
 
-                decision_final_usuario = st.session_state["decision_usuario"]
-
-                # 🔽 GENERAR WORD CON DECISIÓN FINAL
                 archivo = generar_word(
                     nordemp=nordemp,
                     nordest=nordest,
@@ -431,7 +434,7 @@ if nordest:
                     establecimiento=establecimiento,
                     seleccionados=st.session_state["seleccionados_finales"],
                     puntaje_final=puntaje,
-                    decision=decision_final_usuario
+                    decision=st.session_state["decision_usuario"]
                 )
 
                 nombre_archivo = (
@@ -445,45 +448,7 @@ if nordest:
                     archivo,
                     file_name=nombre_archivo,
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-        
-        
-        if st.session_state["evaluacion_finalizada"]:
-            st.subheader("3. Resultado")
-
-            c1, c2 = st.columns(2)
-            c1.metric("Puntaje final", f"{st.session_state['puntaje_final_final']:g}")
-            c2.metric("Resultado", st.session_state["decision_final"])
-
-            if st.session_state["decision_final"] == "DEVOLVER":
-                st.error("DEVOLVER")
-            else:
-                st.success("ENVIAR CORREO")
-
-            archivo = generar_word(
-                nordemp=nordemp,
-                nordest=nordest,
-                analista=analista,
-                monitor=monitor,
-                territorial=territorial,
-                establecimiento=establecimiento,
-                seleccionados=st.session_state["seleccionados_finales"],
-                puntaje_final=st.session_state["puntaje_final_final"],
-                decision=st.session_state["decision_final"]
-            )
-
-            nombre_archivo = (
-                f"{limpiar_nombre_archivo(nordemp)}_"
-                f"{limpiar_nombre_archivo(nordest)}_"
-                f"{limpiar_nombre_archivo(establecimiento)}.docx"
-            )
-
-            st.download_button(
-                "Descargar Word",
-                archivo,
-                file_name=nombre_archivo,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+                )
 
     else:
         st.warning("No se encontró ese NORDEST.")
