@@ -309,7 +309,7 @@ if nordest:
                                 text_key = f"text_{idx}"
 
                                 st.checkbox(
-                                    f"{fila2['SUBTÍTULO_2']} (-{fila2['PUNTAJE']})",
+                                    f"{fila2['SUBTÍTULO_2']} ({fila2['PUNTAJE']})",
                                     key=check_key
                                 )
 
@@ -327,7 +327,7 @@ if nordest:
                         text_key = f"text_{idx}"
 
                         st.checkbox(
-                            f"{fila2['SUBTÍTULO_2']} (-{fila2['PUNTAJE']})",
+                            f"{fila2['SUBTÍTULO_2']} ({fila2['PUNTAJE']})",
                             key=check_key
                         )
 
