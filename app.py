@@ -241,6 +241,12 @@ if "decision_usuario" not in st.session_state:
 if "registro_guardado" not in st.session_state:
     st.session_state["registro_guardado"] = False
 
+if "registro_error" not in st.session_state:
+    st.session_state["registro_error"] = None
+
+if "registro_ya_guardado" not in st.session_state:
+    st.session_state["registro_ya_guardado"] = False
+
 st.subheader("1. Identificación")
 
 modo = st.radio("Modo de búsqueda", ["Escribir", "Seleccionar"], horizontal=True)
@@ -354,34 +360,16 @@ if nordest:
                     })
 
             puntaje_final = max(0, PUNTAJE_BASE - sum(x["puntaje"] for x in seleccionados))
-            decision = "DEVOLVER" if puntaje_final < 90 else "ENVIAR CORREO"
-
-            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            ok, error_msg = guardar_registro_sheet(
-                fecha=fecha_registro,
-                analista=str(analista),
-                territorial=str(territorial),
-                nordemp=str(nordemp),
-                nordest=str(nordest),
-                nomest=str(establecimiento),
-                monitor=str(monitor),
-                codsede=str(codsede),
-                calificacion=float(puntaje_final),
-                resultado=str(decision)
-            )
+            recomendacion = "DEVOLVER" if puntaje_final < 90 else "ENVIAR CORREO"
 
             st.session_state["seleccionados_finales"] = seleccionados
             st.session_state["puntaje_final_final"] = puntaje_final
-            st.session_state["decision_final"] = decision
+            st.session_state["decision_final"] = recomendacion
             st.session_state["decision_usuario"] = ""
             st.session_state["evaluacion_finalizada"] = True
-            st.session_state["registro_guardado"] = ok
-
-            if ok:
-                st.success("Registro guardado en Google Sheets.")
-            else:
-                st.error(f"No se pudo guardar en Google Sheets: {error_msg}")
+            st.session_state["registro_guardado"] = False
+            st.session_state["registro_error"] = None
+            st.session_state["registro_ya_guardado"] = False
 
         if st.session_state["evaluacion_finalizada"]:
             st.subheader("3. Resultado")
@@ -404,17 +392,41 @@ if nordest:
                 if recomendacion == "ENVIAR CORREO":
                     if st.button("✅ Enviar correo", type="primary"):
                         st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                        st.session_state["registro_ya_guardado"] = False
                 else:
                     if st.button("✅ Enviar correo"):
                         st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                        st.session_state["registro_ya_guardado"] = False
 
             with col_btn2:
                 if recomendacion == "DEVOLVER":
                     if st.button("🔁 Devolver caso", type="primary"):
                         st.session_state["decision_usuario"] = "DEVOLVER"
+                        st.session_state["registro_ya_guardado"] = False
                 else:
                     if st.button("🔁 Devolver caso"):
                         st.session_state["decision_usuario"] = "DEVOLVER"
+                        st.session_state["registro_ya_guardado"] = False
+
+            if st.session_state.get("decision_usuario") and not st.session_state["registro_ya_guardado"]:
+                fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                ok, error_msg = guardar_registro_sheet(
+                    fecha=fecha_registro,
+                    analista=str(analista),
+                    territorial=str(territorial),
+                    nordemp=str(nordemp),
+                    nordest=str(nordest),
+                    nomest=str(establecimiento),
+                    monitor=str(monitor),
+                    codsede=str(codsede),
+                    calificacion=float(puntaje),
+                    resultado=str(st.session_state["decision_usuario"])
+                )
+
+                st.session_state["registro_guardado"] = ok
+                st.session_state["registro_error"] = error_msg
+                st.session_state["registro_ya_guardado"] = True
 
             if st.session_state.get("decision_usuario"):
                 st.divider()
@@ -424,6 +436,11 @@ if nordest:
                     st.error("DEVOLVER")
                 else:
                     st.success("ENVIAR CORREO")
+
+                if st.session_state["registro_guardado"]:
+                    st.success("Registro guardado en Google Sheets con la decisión final del usuario.")
+                elif st.session_state["registro_error"]:
+                    st.error(f"No se pudo guardar en Google Sheets: {st.session_state['registro_error']}")
 
                 archivo = generar_word(
                     nordemp=nordemp,
