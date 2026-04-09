@@ -1,14 +1,12 @@
 import io
 import re
 from datetime import datetime
-import streamlit as st
+
 import gspread
 import pandas as pd
-
+import streamlit as st
 from docx import Document
-from docx.shared import Inches
 from oauth2client.service_account import ServiceAccountCredentials
-
 
 st.set_page_config(page_title="Calidad analistas", layout="wide")
 
@@ -173,51 +171,53 @@ def generar_word(
 ):
     doc = Document()
 
-    doc.add_heading("DEVOLUCIÓN DE CALIDAD", level=1)
+    doc.add_heading("Resultado de Evaluación", 1)
 
-    doc.add_paragraph(f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    doc.add_paragraph(f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     doc.add_paragraph(f"NORDEMP: {nordemp}")
     doc.add_paragraph(f"NORDEST: {nordest}")
-    doc.add_paragraph(f"Establecimiento: {establecimiento}")
     doc.add_paragraph(f"Analista: {analista}")
     doc.add_paragraph(f"Monitor: {monitor}")
     doc.add_paragraph(f"Territorial: {territorial}")
-    doc.add_paragraph(f"Puntaje final: {puntaje_final}")
-    doc.add_paragraph(f"Decisión final: {decision}")
+    doc.add_paragraph(f"Establecimiento: {establecimiento}")
 
-    doc.add_paragraph(" ")
-    doc.add_heading("Observaciones", level=2)
+    doc.add_heading("Resumen", 2)
+    doc.add_paragraph(f"Puntaje final: {puntaje_final}")
+    doc.add_paragraph(f"Resultado: {decision}")
+
+    doc.add_heading("Observaciones", 2)
 
     if not seleccionados:
         doc.add_paragraph("No se registraron observaciones.")
     else:
-        for item in seleccionados:
-            doc.add_heading(str(item["titulo"]), level=3)
+        seleccionados_ordenados = sorted(seleccionados, key=lambda x: x["orden"])
+        modulo_actual = None
+        categoria_actual = None
 
-            if str(item.get("categoria", "")).strip():
-                doc.add_paragraph(f"Categoría: {item['categoria']}")
+        for item in seleccionados_ordenados:
+            if item["titulo"] != modulo_actual:
+                doc.add_heading(item["titulo"], 3)
+                modulo_actual = item["titulo"]
+                categoria_actual = None
 
-            doc.add_paragraph(f"Ítem: {item['subtitulo']}")
-            doc.add_paragraph(f"Descuento: {item['puntaje']}")
+            if item["categoria"]:
+                if item["categoria"] != categoria_actual:
+                    doc.add_heading(item["categoria"], 4)
+                    categoria_actual = item["categoria"]
+
+            p_sub = doc.add_paragraph()
+            run = p_sub.add_run(item["subtitulo"])
+            run.bold = True
 
             if item["texto"]:
                 doc.add_paragraph(item["texto"])
             else:
                 doc.add_paragraph("")
 
-            if item.get("imagen_clipboard"):
-                try:
-                    image_stream = io.BytesIO(item["imagen_clipboard"])
-                    doc.add_picture(image_stream, width=Inches(4.5))
-                except Exception:
-                    pass
-
-            doc.add_paragraph("-" * 60)
-
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
-    return buffer.getvalue()
+    return buffer
 
 
 df_base = cargar_fuentes()
@@ -307,7 +307,6 @@ if nordest:
                                 idx = int(fila2["orden"])
                                 check_key = f"check_{idx}"
                                 text_key = f"text_{idx}"
-                                img_key = f"img_{idx}"
 
                                 st.checkbox(
                                     f"{fila2['SUBTÍTULO_2']} ({fila2['PUNTAJE']})",
@@ -319,21 +318,13 @@ if nordest:
                                         f"Observación: {fila2['SUBTÍTULO_2']}",
                                         key=text_key,
                                         height=120,
-                                        placeholder="Aquí el analista puede escribir la observación..."
+                                        placeholder="Aquí el analista puede escribir o pegar la observación..."
                                     )
-
-                                    st.file_uploader(
-                                        f"Adjuntar imagen para: {fila2['SUBTÍTULO_2']}",
-                                        type=["png", "jpg", "jpeg"],
-                                        key=img_key
-                                    )
-
                 else:
                     for _, fila2 in df_titulo.iterrows():
                         idx = int(fila2["orden"])
                         check_key = f"check_{idx}"
                         text_key = f"text_{idx}"
-                        img_key = f"img_{idx}"
 
                         st.checkbox(
                             f"{fila2['SUBTÍTULO_2']} ({fila2['PUNTAJE']})",
@@ -345,13 +336,7 @@ if nordest:
                                 f"Observación: {fila2['SUBTÍTULO_2']}",
                                 key=text_key,
                                 height=120,
-                                placeholder="Aquí el analista puede escribir la observación..."
-                            )
-
-                            st.file_uploader(
-                                f"Adjuntar imagen para: {fila2['SUBTÍTULO_2']}",
-                                type=["png", "jpg", "jpeg"],
-                                key=img_key
+                                placeholder="Aquí el analista puede escribir o pegar la observación..."
                             )
 
         st.divider()
@@ -363,25 +348,14 @@ if nordest:
                 idx = int(fila2["orden"])
                 check_key = f"check_{idx}"
                 text_key = f"text_{idx}"
-                img_key = f"img_{idx}"
 
                 if st.session_state.get(check_key, False):
-                    imagen_bytes = None
-                    imagen_file = st.session_state.get(img_key)
-
-                    if imagen_file is not None:
-                        try:
-                            imagen_bytes = imagen_file.read()
-                        except Exception:
-                            imagen_bytes = None
-
                     seleccionados.append({
                         "titulo": fila2["TÍTULO"],
                         "categoria": fila2["SUBTÍTULO_1"],
                         "subtitulo": fila2["SUBTÍTULO_2"],
                         "puntaje": fila2["PUNTAJE"],
                         "texto": st.session_state.get(text_key, "").strip(),
-                        "imagen_clipboard": imagen_bytes,
                         "orden": idx
                     })
 
