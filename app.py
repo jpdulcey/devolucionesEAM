@@ -517,49 +517,6 @@ if nordest:
                         if st.button("Volver", key="volver_devolucion"):
                             st.session_state["accion_pendiente"] = ""
 
-            
-                elif st.session_state["accion_pendiente"] == "DEVOLVER FUENTE":
-                    st.warning("¿Confirma que devolverá la fuente?")
-                    dias = st.number_input(
-                        "Días otorgados para responder",
-                        min_value=1,
-                        step=1,
-                        format="%d",
-                        key="dias_input"
-                    )
-
-                    c1, c2 = st.columns(2)
-
-                    with c1:
-                        if st.button("Confirmar devolución", type="primary"):
-                            st.session_state["decision_usuario"] = "DEVOLVER FUENTE"
-                            st.session_state["dias_respuesta"] = int(dias)
-
-                            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                            ok, error_msg = guardar_registro_sheet(
-                                fecha=fecha_registro,
-                                analista=str(analista),
-                                territorial=str(territorial),
-                                nordemp=str(nordemp),
-                                nordest=str(nordest),
-                                nomest=str(establecimiento),
-                                monitor=str(monitor),
-                                codsede=str(codsede),
-                                calificacion=float(puntaje),
-                                resultado="DEVOLVER FUENTE",
-                                dias=int(dias)
-                            )
-
-                            st.session_state["registro_guardado"] = ok
-                            st.session_state["registro_error"] = error_msg
-                            st.session_state["registro_ya_guardado"] = True
-                            st.session_state["accion_pendiente"] = ""
-
-                    with c2:
-                        if st.button("Volver", key="volver_devolucion"):
-                            st.session_state["accion_pendiente"] = ""
-
             if st.session_state.get("decision_usuario"):
                 st.divider()
                 st.subheader("Decisión final seleccionada")
@@ -584,7 +541,7 @@ if nordest:
                     seleccionados=st.session_state["seleccionados_finales"],
                     puntaje_final=puntaje,
                     decision=st.session_state["decision_usuario"],
-                    dias=st.session_state["dias_respuesta"] if st.session_state["decision_usuario"] == "DEVOLVER FUENTE" else None
+                    dias=st.session_state["dias_respuesta"] if st.session_state["decision_usuario"] == "ENVIAR CORREO" else None
                 )
 
                 nombre_archivo = (
