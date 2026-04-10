@@ -188,7 +188,7 @@ def generar_word(
     doc.add_paragraph(f"Puntaje final: {puntaje_final}")
     doc.add_paragraph(f"Resultado: {decision}")
 
-    if decision == "DEVOLVER FUENTE":
+    if decision == "ENVIAR CORREO":
         doc.add_paragraph(f"Días otorgados para responder: {dias if dias is not None else ''}")
 
     doc.add_heading("Observaciones", 2)
@@ -434,19 +434,28 @@ if nordest:
                     ):
                         st.session_state["accion_pendiente"] = "DEVOLVER FUENTE"
 
+
             # CUADRO DE CONFIRMACIÓN
             if st.session_state["accion_pendiente"] and not decision_confirmada:
                 st.divider()
                 st.subheader("Confirmación")
 
                 if st.session_state["accion_pendiente"] == "ENVIAR CORREO":
-                    st.info("¿Confirma que enviará correo?")
+                    st.info("¿Confirma que enviará el correo?")
+                    dias = st.number_input(
+                        "Días otorgados para responder el correo",
+                        min_value=1,
+                        step=1,
+                        format="%d",
+                        key="dias_input_correo"
+                    )
 
                     c1, c2 = st.columns(2)
 
                     with c1:
                         if st.button("Confirmar envío", type="primary"):
                             st.session_state["decision_usuario"] = "ENVIAR CORREO"
+                            st.session_state["dias_respuesta"] = int(dias)
 
                             fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -461,7 +470,7 @@ if nordest:
                                 codsede=str(codsede),
                                 calificacion=float(puntaje),
                                 resultado="ENVIAR CORREO",
-                                dias=""
+                                dias=int(dias)
                             )
 
                             st.session_state["registro_guardado"] = ok
@@ -473,6 +482,42 @@ if nordest:
                         if st.button("Volver", key="volver_correo"):
                             st.session_state["accion_pendiente"] = ""
 
+                elif st.session_state["accion_pendiente"] == "DEVOLVER FUENTE":
+                    st.warning("¿Confirma que devolverá la fuente?")
+
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button("Confirmar devolución", type="primary"):
+                            st.session_state["decision_usuario"] = "DEVOLVER FUENTE"
+                            st.session_state["dias_respuesta"] = ""
+
+                            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                            ok, error_msg = guardar_registro_sheet(
+                                fecha=fecha_registro,
+                                analista=str(analista),
+                                territorial=str(territorial),
+                                nordemp=str(nordemp),
+                                nordest=str(nordest),
+                                nomest=str(establecimiento),
+                                monitor=str(monitor),
+                                codsede=str(codsede),
+                                calificacion=float(puntaje),
+                                resultado="DEVOLVER FUENTE",
+                                dias=""
+                            )
+
+                            st.session_state["registro_guardado"] = ok
+                            st.session_state["registro_error"] = error_msg
+                            st.session_state["registro_ya_guardado"] = True
+                            st.session_state["accion_pendiente"] = ""
+
+                    with c2:
+                        if st.button("Volver", key="volver_devolucion"):
+                            st.session_state["accion_pendiente"] = ""
+
+            
                 elif st.session_state["accion_pendiente"] == "DEVOLVER FUENTE":
                     st.warning("¿Confirma que devolverá la fuente?")
                     dias = st.number_input(
@@ -520,9 +565,9 @@ if nordest:
                 st.subheader("Decisión final seleccionada")
 
                 if st.session_state["decision_usuario"] == "DEVOLVER FUENTE":
-                    st.error(f"DEVOLVER FUENTE | Días otorgados: {st.session_state['dias_respuesta']}")
+                    st.error("DEVOLVER FUENTE")
                 else:
-                    st.success("ENVIAR CORREO")
+                    st.success(f"ENVIAR CORREO | Días otorgados: {st.session_state['dias_respuesta']}")
 
                 if st.session_state["registro_guardado"]:
                     st.success("Registro guardado en Google Sheets con la decisión final del usuario.")
