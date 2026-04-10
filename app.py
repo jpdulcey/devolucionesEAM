@@ -65,7 +65,8 @@ def guardar_registro_sheet(
     monitor,
     codsede,
     calificacion,
-    resultado
+    resultado,
+    dias
 ):
     try:
         sheet = conectar_sheet()
@@ -81,7 +82,8 @@ def guardar_registro_sheet(
                 monitor,
                 codsede,
                 calificacion,
-                resultado
+                resultado,
+                dias
             ],
             value_input_option="USER_ENTERED"
         )
@@ -167,7 +169,8 @@ def generar_word(
     establecimiento,
     seleccionados,
     puntaje_final,
-    decision
+    decision,
+    dias=None
 ):
     doc = Document()
 
@@ -184,6 +187,9 @@ def generar_word(
     doc.add_heading("Resumen", 2)
     doc.add_paragraph(f"Puntaje final: {puntaje_final}")
     doc.add_paragraph(f"Resultado: {decision}")
+
+    if decision == "DEVOLVER FUENTE":
+        doc.add_paragraph(f"Días otorgados para responder: {dias if dias is not None else ''}")
 
     doc.add_heading("Observaciones", 2)
 
@@ -223,6 +229,7 @@ def generar_word(
 df_base = cargar_fuentes()
 df_puntajes = cargar_puntajes()
 
+# SESSION STATE
 if "evaluacion_finalizada" not in st.session_state:
     st.session_state["evaluacion_finalizada"] = False
 
@@ -246,6 +253,12 @@ if "registro_error" not in st.session_state:
 
 if "registro_ya_guardado" not in st.session_state:
     st.session_state["registro_ya_guardado"] = False
+
+if "accion_pendiente" not in st.session_state:
+    st.session_state["accion_pendiente"] = ""
+
+if "dias_respuesta" not in st.session_state:
+    st.session_state["dias_respuesta"] = 1
 
 st.subheader("1. Identificación")
 
@@ -360,7 +373,7 @@ if nordest:
                     })
 
             puntaje_final = max(0, PUNTAJE_BASE - sum(x["puntaje"] for x in seleccionados))
-            recomendacion = "DEVOLVER" if puntaje_final < 90 else "ENVIAR CORREO"
+            recomendacion = "DEVOLVER FUENTE" if puntaje_final < 90 else "ENVIAR CORREO"
 
             st.session_state["seleccionados_finales"] = seleccionados
             st.session_state["puntaje_final_final"] = puntaje_final
@@ -370,19 +383,22 @@ if nordest:
             st.session_state["registro_guardado"] = False
             st.session_state["registro_error"] = None
             st.session_state["registro_ya_guardado"] = False
+            st.session_state["accion_pendiente"] = ""
+            st.session_state["dias_respuesta"] = 1
 
         if st.session_state["evaluacion_finalizada"]:
             st.subheader("3. Resultado")
 
             puntaje = st.session_state["puntaje_final_final"]
             recomendacion = st.session_state["decision_final"]
+            decision_confirmada = st.session_state["registro_ya_guardado"]
 
             c1, c2 = st.columns(2)
             c1.metric("Puntaje final", f"{puntaje:g}")
             c2.metric("Recomendación del sistema", recomendacion)
 
-            if recomendacion == "DEVOLVER":
-                st.error("Según la validación, se recomienda devolver el caso. Seleccione la acción a realizar:")
+            if recomendacion == "DEVOLVER FUENTE":
+                st.error("Según la validación, se recomienda devolver la fuente. Seleccione la acción a realizar:")
             else:
                 st.success("Según la validación, se recomienda enviar correo. Seleccione la acción a realizar:")
 
@@ -390,50 +406,121 @@ if nordest:
 
             with col_btn1:
                 if recomendacion == "ENVIAR CORREO":
-                    if st.button("✅ Enviar correo", type="primary"):
-                        st.session_state["decision_usuario"] = "ENVIAR CORREO"
-                        st.session_state["registro_ya_guardado"] = False
+                    if st.button(
+                        "✅ Enviar correo",
+                        type="primary",
+                        disabled=decision_confirmada
+                    ):
+                        st.session_state["accion_pendiente"] = "ENVIAR CORREO"
                 else:
-                    if st.button("✅ Enviar correo"):
-                        st.session_state["decision_usuario"] = "ENVIAR CORREO"
-                        st.session_state["registro_ya_guardado"] = False
+                    if st.button(
+                        "✅ Enviar correo",
+                        disabled=decision_confirmada
+                    ):
+                        st.session_state["accion_pendiente"] = "ENVIAR CORREO"
 
             with col_btn2:
-                if recomendacion == "DEVOLVER":
-                    if st.button("🔁 Devolver caso", type="primary"):
-                        st.session_state["decision_usuario"] = "DEVOLVER"
-                        st.session_state["registro_ya_guardado"] = False
+                if recomendacion == "DEVOLVER FUENTE":
+                    if st.button(
+                        "🔁 Devolver fuente",
+                        type="primary",
+                        disabled=decision_confirmada
+                    ):
+                        st.session_state["accion_pendiente"] = "DEVOLVER FUENTE"
                 else:
-                    if st.button("🔁 Devolver caso"):
-                        st.session_state["decision_usuario"] = "DEVOLVER"
-                        st.session_state["registro_ya_guardado"] = False
+                    if st.button(
+                        "🔁 Devolver fuente",
+                        disabled=decision_confirmada
+                    ):
+                        st.session_state["accion_pendiente"] = "DEVOLVER FUENTE"
 
-            if st.session_state.get("decision_usuario") and not st.session_state["registro_ya_guardado"]:
-                fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # CUADRO DE CONFIRMACIÓN
+            if st.session_state["accion_pendiente"] and not decision_confirmada:
+                st.divider()
+                st.subheader("Confirmación")
 
-                ok, error_msg = guardar_registro_sheet(
-                    fecha=fecha_registro,
-                    analista=str(analista),
-                    territorial=str(territorial),
-                    nordemp=str(nordemp),
-                    nordest=str(nordest),
-                    nomest=str(establecimiento),
-                    monitor=str(monitor),
-                    codsede=str(codsede),
-                    calificacion=float(puntaje),
-                    resultado=str(st.session_state["decision_usuario"])
-                )
+                if st.session_state["accion_pendiente"] == "ENVIAR CORREO":
+                    st.info("¿Confirma que enviará correo?")
 
-                st.session_state["registro_guardado"] = ok
-                st.session_state["registro_error"] = error_msg
-                st.session_state["registro_ya_guardado"] = True
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button("Confirmar envío", type="primary"):
+                            st.session_state["decision_usuario"] = "ENVIAR CORREO"
+
+                            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                            ok, error_msg = guardar_registro_sheet(
+                                fecha=fecha_registro,
+                                analista=str(analista),
+                                territorial=str(territorial),
+                                nordemp=str(nordemp),
+                                nordest=str(nordest),
+                                nomest=str(establecimiento),
+                                monitor=str(monitor),
+                                codsede=str(codsede),
+                                calificacion=float(puntaje),
+                                resultado="ENVIAR CORREO",
+                                dias=""
+                            )
+
+                            st.session_state["registro_guardado"] = ok
+                            st.session_state["registro_error"] = error_msg
+                            st.session_state["registro_ya_guardado"] = True
+                            st.session_state["accion_pendiente"] = ""
+
+                    with c2:
+                        if st.button("Volver", key="volver_correo"):
+                            st.session_state["accion_pendiente"] = ""
+
+                elif st.session_state["accion_pendiente"] == "DEVOLVER FUENTE":
+                    st.warning("¿Confirma que devolverá la fuente?")
+                    dias = st.number_input(
+                        "Días otorgados para responder",
+                        min_value=1,
+                        step=1,
+                        format="%d",
+                        key="dias_input"
+                    )
+
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button("Confirmar devolución", type="primary"):
+                            st.session_state["decision_usuario"] = "DEVOLVER FUENTE"
+                            st.session_state["dias_respuesta"] = int(dias)
+
+                            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                            ok, error_msg = guardar_registro_sheet(
+                                fecha=fecha_registro,
+                                analista=str(analista),
+                                territorial=str(territorial),
+                                nordemp=str(nordemp),
+                                nordest=str(nordest),
+                                nomest=str(establecimiento),
+                                monitor=str(monitor),
+                                codsede=str(codsede),
+                                calificacion=float(puntaje),
+                                resultado="DEVOLVER FUENTE",
+                                dias=int(dias)
+                            )
+
+                            st.session_state["registro_guardado"] = ok
+                            st.session_state["registro_error"] = error_msg
+                            st.session_state["registro_ya_guardado"] = True
+                            st.session_state["accion_pendiente"] = ""
+
+                    with c2:
+                        if st.button("Volver", key="volver_devolucion"):
+                            st.session_state["accion_pendiente"] = ""
 
             if st.session_state.get("decision_usuario"):
                 st.divider()
                 st.subheader("Decisión final seleccionada")
 
-                if st.session_state["decision_usuario"] == "DEVOLVER":
-                    st.error("DEVOLVER")
+                if st.session_state["decision_usuario"] == "DEVOLVER FUENTE":
+                    st.error(f"DEVOLVER FUENTE | Días otorgados: {st.session_state['dias_respuesta']}")
                 else:
                     st.success("ENVIAR CORREO")
 
@@ -451,7 +538,8 @@ if nordest:
                     establecimiento=establecimiento,
                     seleccionados=st.session_state["seleccionados_finales"],
                     puntaje_final=puntaje,
-                    decision=st.session_state["decision_usuario"]
+                    decision=st.session_state["decision_usuario"],
+                    dias=st.session_state["dias_respuesta"] if st.session_state["decision_usuario"] == "DEVOLVER FUENTE" else None
                 )
 
                 nombre_archivo = (
