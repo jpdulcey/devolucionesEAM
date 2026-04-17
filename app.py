@@ -176,16 +176,17 @@ def cargar_fuentes():
     return df_base
 
 
-def preparar_df_puntajes(df):
+def preparar_df_puntajes(df, tipo="devoluciones"):
     df.columns = [str(col).strip() for col in df.columns]
 
-    columnas_requeridas = ["TÍTULO", "SUBTÍTULO_2", "PUNTAJE"]
+    columnas_requeridas = ["PUNTAJE"]
     for col in columnas_requeridas:
         if col not in df.columns:
             raise KeyError(f"Falta la columna '{col}' en puntajes.xlsx")
 
-    if "SUBTÍTULO_1" not in df.columns:
-        df["SUBTÍTULO_1"] = ""
+    for col in ["TÍTULO", "SUBTÍTULO_1", "SUBTÍTULO_2"]:
+        if col not in df.columns:
+            df[col] = ""
 
     df = df[["TÍTULO", "SUBTÍTULO_1", "SUBTÍTULO_2", "PUNTAJE"]].copy()
     df["orden"] = range(len(df))
@@ -195,9 +196,28 @@ def preparar_df_puntajes(df):
     df["SUBTÍTULO_2"] = df["SUBTÍTULO_2"].fillna("").astype(str).str.strip()
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce").fillna(0)
 
-    df = df[(df["TÍTULO"] != "") & (df["SUBTÍTULO_2"] != "")].reset_index(drop=True)
-    return df
+    tipo_norm = str(tipo).strip().lower()
 
+    if tipo_norm == "novedades":
+        # En novedades, si TÍTULO viene vacío, ponemos uno genérico
+        df["TÍTULO"] = df["TÍTULO"].replace("", "Novedades")
+
+        # Si SUBTÍTULO_2 viene vacío, usar SUBTÍTULO_1 como texto principal
+        df["SUBTÍTULO_2"] = df["SUBTÍTULO_2"].where(
+            df["SUBTÍTULO_2"] != "",
+            df["SUBTÍTULO_1"]
+        )
+
+        # Y dejamos SUBTÍTULO_1 vacío para que no cree una categoría extra innecesaria
+        df["SUBTÍTULO_1"] = ""
+
+        df = df[df["SUBTÍTULO_2"] != ""].reset_index(drop=True)
+
+    else:
+        # Devoluciones: comportamiento original
+        df = df[(df["TÍTULO"] != "") & (df["SUBTÍTULO_2"] != "")].reset_index(drop=True)
+
+    return df
 
 @st.cache_data
 def cargar_puntajes():
@@ -210,7 +230,6 @@ def cargar_puntajes():
 
     nombres_hojas = list(hojas.keys())
 
-    # Intenta tomar hojas por nombre; si no existen, toma las dos primeras
     hoja_dev = None
     hoja_nov = None
 
@@ -227,11 +246,10 @@ def cargar_puntajes():
     if hoja_nov is None:
         hoja_nov = nombres_hojas[1]
 
-    df_devoluciones = preparar_df_puntajes(hojas[hoja_dev])
-    df_novedades = preparar_df_puntajes(hojas[hoja_nov])
+    df_devoluciones = preparar_df_puntajes(hojas[hoja_dev], tipo="devoluciones")
+    df_novedades = preparar_df_puntajes(hojas[hoja_nov], tipo="novedades")
 
     return df_devoluciones, df_novedades, hoja_dev, hoja_nov
-
 
 def generar_word(
     tipo_proceso,
@@ -327,7 +345,7 @@ def render_modulo(
 ):
     inicializar_estado_modulo(prefix)
 
-    st.subheader(f"2. {tipo_proceso.title()}")
+    st.subheader(tipo_proceso.title())
 
     titulos_en_orden = df_puntajes["TÍTULO"].drop_duplicates().tolist()
 
